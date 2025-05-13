@@ -127,13 +127,15 @@ def main():
 
     test_acc = evaluate(model, test_loader)
     print(f"Top-1 accuracy on CIFAR-10 test set: {test_acc:.2f}%")
+    print("Computing loss landscape ...")
 
-    ll, x, y = loss_landscape.compute_loss_landscape(
+    x, y, loss = loss_landscape.compute_loss_landscape(
         model,
         loss_fn=nn.CrossEntropyLoss(),
         device=DEVICE,
         data_loader=test_loader,
     )
+    loss_landscape.plot3d(x, y, loss, "loss_landscape3d.png")
 
 if __name__ == "__main__":
     main()

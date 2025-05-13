@@ -74,35 +74,49 @@ def compute_loss(model, loss_fn, device, data_loader, num_batches):
 
 
 @torch.no_grad()
-def compute_loss_landscape(model, loss_fn, data_loader, num_batches=1, min_val=-1, max_val=1, num_points=50, device=None):
+def compute_loss_landscape(model, loss_fn, data_loader, num_batches=1, min_val=-1, max_val=1, num_points=20, device=None):
     """
     directions : filter-wise normalized directions(d = (d / d.norm) * w.norm, d is random vector from gausian distribution)
     To make d have the same norm as w.
     """
-    device = device if device is not None else ('cuda' if torch.cuda.is_available() else 'cpu')
+    device = device if device is not None else ("cuda" if torch.cuda.is_available() else "cpu")
 
     model.eval()
 
     directions = create_random_directions(model)  # Create random directions
 
-    x_coordinates = torch.linspace(min_val, max_val, num_points)
-    y_coordinates = torch.linspace(min_val, max_val, num_points)
+    x = torch.linspace(min_val, max_val, num_points)
+    y = torch.linspace(min_val, max_val, num_points)
 
-    shape = (len(x_coordinates), len(y_coordinates))
-    losses = torch.zeros(shape)
+    shape = (len(x), len(y))
+    loss = torch.zeros(shape)
 
     init_weights = [p.data for p in model.parameters()]  # pretrained weights
 
-    for xi in range(len(x_coordinates)):
-        for yi in range(len(y_coordinates)):
+    for xi in range(len(x)):
+        for yi in range(len(y)):
             # Move to the new point in the parameter space
-            overwrite_weights(model, init_weights, directions, (x_coordinates[xi].item(), y_coordinates[yi].item()))
+            overwrite_weights(model, init_weights, directions, (x[xi].item(), y[yi].item()))
 
             # Evaluate the model at a given point in the parameter space
-            loss = compute_loss(model, loss_fn, device, data_loader, num_batches)
-            losses[xi, yi] = loss
+            l = compute_loss(model, loss_fn, device, data_loader, num_batches)
+            loss[xi, yi] = l
 
-    return x_coordinates, y_coordinates, losses
+    return x, y, loss
 
+
+def plot3d(x, y, loss, file_name):
+    import matplotlib.pyplot as plt
+    fig = plt.figure()
+    ax = fig.add_subplot(111, projection="3d")
+    x = x.detach().cpu().numpy()
+    y = y.detach().cpu().numpy()
+    loss = loss.detach().cpu().numpy()
+    ax.plot_surface(x, y, loss, cmap="viridis")
+    ax.set_xlabel("x")
+    ax.set_ylabel("y")
+    ax.set_zlabel("loss")
+    ax.set_title("Loss landscape")
+    plt.savefig(file_name)
 
 
