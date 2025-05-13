@@ -8,87 +8,6 @@
 """
 
 import torch
-import numpy as np
-import h5py
-import os
-from src.test_model import eval_loss
-from src.dataloader import dataloader
-
-
-def calulate_loss_landscape(args, model, directions, save_path):
-    """
-    directions : filter-wise normalized directions(d = (d / d.norm) * w.norm, d is random vector from gausian distribution)
-    To make d have the same norm as w.
-    """
-    surface_path = setup_surface_file(args, save_path)
-    init_weights = [p.data for p in model.parameters()]  # pretrained weights
-
-    with h5py.File(surface_path, 'r+') as f:
-        xcoordinates = f['xcoordinates'][:]
-        ycoordinates = f['ycoordinates'][:]
-        losses = f["train_loss"][:]
-        accuracies = f["train_acc"][:]
-
-        inds, coords = get_indices(losses, xcoordinates, ycoordinates)
-
-        _, _, land_loader = dataloader()
-
-        for count, ind in enumerate(inds):
-            print("ind...%s" % ind)
-            coord = coords[count]
-            overwrite_weights(model, init_weights, directions, coord)
-
-            loss, acc = eval_loss(model, land_loader)
-            print(loss, acc)
-
-            losses.ravel()[ind] = loss
-            accuracies.ravel()[ind] = acc
-
-            print('Evaluating %d/%d  (%.1f%%)  coord=%s' % (
-                ind, len(inds), 100.0 * count / len(inds), str(coord)))
-
-            f["train_loss"][:] = losses
-            f["train_acc"][:] = accuracies
-            f.flush()
-
-            # if ind % 300 == 0:
-            #    break
-
-    return surface_path
-
-
-def setup_surface_file(args, save_path):
-    surface_path = f"{save_path}/3d_surface_file.h5"
-
-    with h5py.File(surface_path, 'w') as f:
-        print("Create new 3d_sureface_file.h5")
-
-        xcoordinates = np.linspace(args.xmin, args.xmax, args.xnum)
-        f['xcoordinates'] = xcoordinates
-
-        ycoordinates = np.linspace(args.ymin, args.ymax, args.ynum)
-        f['ycoordinates'] = ycoordinates
-
-        shape = (len(xcoordinates), len(ycoordinates))
-        losses = -np.ones(shape=shape)
-        accuracies = np.ones(shape=shape)
-
-        f["train_loss"] = losses
-        f["train_acc"] = accuracies
-
-        return surface_path
-
-
-def get_indices(vals, xcoordinates, ycoordinates):
-    inds = np.array(range(vals.size))
-    inds = inds[vals.ravel() <= 0]
-
-    xcoord_mesh, ycoord_mesh = np.meshgrid(xcoordinates, ycoordinates)
-    s1 = xcoord_mesh.ravel()[inds]
-    s2 = ycoord_mesh.ravel()[inds]
-
-    return inds, np.c_[s1, s2]
-
 
 def overwrite_weights(model, init_weights, directions, step):
     dx = directions[0]  # Direction vector present in the scale of weights
@@ -98,25 +17,52 @@ def overwrite_weights(model, init_weights, directions, step):
     for (p, w, d) in zip(model.parameters(), init_weights, changes):
         p.data = w + d  # θ^* + αδ + βη
 
-def main():
-    """ Test the loss landscape visualization on a pretrained model. """
-    import torchvision
+@torch.no_grad()
+def compute_loss(model, loss_fn, device, data_loader, num_batches):
+    """ Compute the loss at the given point in model parameter space. """
+    total_loss = 0
+    num_samples = 0
 
-    transform = torchvision.transforms.Compose([
-        torchvision.transforms.ToTensor(),
-        torchvision.transforms.Resize((224, 224)),
-        # Normalize for resnet model
+    for batch_idx, (inputs, targets) in enumerate(data_loader):
+        batch_size = inputs.size(0)
+        num_samples += batch_size
+        inputs, targets = inputs.to(device), targets.to(device)
+        outputs = model(inputs)
+        loss = loss_fn(outputs, targets)
+        total_loss += loss.item() * batch_size
+        if batch_idx + 1 >= num_batches:
+            break
 
-    ])
-
-    test_dataset = torchvision.datasets.CIFAR10(root='./data/', train=False, transform=transforms.ToTensor(),
-                                                download=True)
-
-    train_loader = torch.utils.data.DataLoader(dataset=train_dataset, batch_size=128, shuffle=True, num_workers=2)
-    test_loader = torch.utils.data.DataLoader(dataset=test_dataset, batch_size=128, shuffle=False, num_workers=2)
-    land_loader = torch.utils.data.DataLoader(dataset=train_dataset, batch_size=128, shuffle=False, num_workers=2, persistent_workers=True)
+    return total_loss / num_samples
 
 
+@torch.no_grad()
+def compute_loss_landscape(model, loss_fn, device, data_loader, num_batches, directions, min_val=-1, max_val=1, num_points=50):
+    """
+    directions : filter-wise normalized directions(d = (d / d.norm) * w.norm, d is random vector from gausian distribution)
+    To make d have the same norm as w.
+    """
 
-if __name__ == "main":
-    main()
+    model.eval()
+
+    x_coordinates = torch.linspace(min_val, max_val, num_points)
+    y_coordinates = torch.linspace(min_val, max_val, num_points)
+
+    shape = (len(x_coordinates), len(y_coordinates))
+    losses = torch.zeros(shape=shape)
+
+    init_weights = [p.data for p in model.parameters()]  # pretrained weights
+
+    for xi in range(len(x_coordinates)):
+        for yi in range(len(y_coordinates)):
+            # Move to the new point in the parameter space
+            overwrite_weights(model, init_weights, directions, (x_coordinates[xi].item(), y_coordinates[yi].item()))
+
+            # Evaluate the model at a given point in the parameter space
+            loss = compute_loss(model, loss_fn, device, data_loader, num_batches)
+            losses[xi, yi] = loss
+
+    return x_coordinates, y_coordinates, losses
+
+
+
