@@ -3,6 +3,7 @@ import numpy as np
 import h5py
 import os
 from src.test_model import eval_loss
+from src.dataloader import dataloader
 
 
 def calulate_loss_landscape(args, model, directions, save_path):
@@ -22,12 +23,14 @@ def calulate_loss_landscape(args, model, directions, save_path):
 
         inds, coords = get_indices(losses, xcoordinates, ycoordinates)
 
+        _, _, land_loader = dataloader()
+
         for count, ind in enumerate(inds):
             print("ind...%s" % ind)
             coord = coords[count]
             overwrite_weights(model, init_weights, directions, coord)
 
-            loss, acc = eval_loss(model)
+            loss, acc = eval_loss(model, land_loader)
             print(loss, acc)
 
             losses.ravel()[ind] = loss 
