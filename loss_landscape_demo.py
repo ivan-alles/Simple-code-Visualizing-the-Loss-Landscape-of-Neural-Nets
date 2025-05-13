@@ -10,6 +10,7 @@ import time, os, torch, torchvision as tv
 from torch import nn, optim
 from torch.utils.data import DataLoader
 from torchvision import transforms
+import loss_landscape
 
 # -----------------------------------------------------------------------------#
 CKPT_PATH   = Path("resnet18_cifar10.pt")   # where we keep the fine-tuned model
@@ -108,14 +109,31 @@ def main():
         transforms.Normalize(IMAGENET_MEAN, IMAGENET_STD)
     ])
 
-    test_set = tv.datasets.CIFAR10(root="data", train=False,
-                                   transform=test_tfms, download=True)
+    test_set = tv.datasets.CIFAR10(
+        root="data",
+        train=False,
+        transform=test_tfms,
+        download=True
+    )
 
-    test_loader = DataLoader(test_set, batch_size=128, shuffle=False,
-                             num_workers=2, pin_memory=True)
+    test_loader = DataLoader(
+        test_set,
+        batch_size=128,
+        shuffle=False,
+        num_workers=2,
+        pin_memory=True,
+        persistent_workers=True
+    )
 
     test_acc = evaluate(model, test_loader)
     print(f"Top-1 accuracy on CIFAR-10 test set: {test_acc:.2f}%")
+
+    ll, x, y = loss_landscape.compute_loss_landscape(
+        model,
+        loss_fn=nn.CrossEntropyLoss(),
+        device=DEVICE,
+        data_loader=test_loader,
+    )
 
 if __name__ == "__main__":
     main()
