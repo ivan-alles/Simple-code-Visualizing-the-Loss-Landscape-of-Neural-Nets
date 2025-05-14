@@ -102,7 +102,7 @@ def compute_loss_landscape(model, loss_fn,  data_loader, num_batches=1, directio
     shape = (len(delta), len(eta))
     loss = torch.zeros(shape)
 
-    params0 = [p.data for p in model.parameters()]  # Initial weights for (0, 0) point in delta, eta space
+    params0 = [p.data.clone() for p in model.parameters()]  # Initial weights for (0, 0) point in delta, eta space
 
     for i in range(len(delta)):
         for j in range(len(eta)):
