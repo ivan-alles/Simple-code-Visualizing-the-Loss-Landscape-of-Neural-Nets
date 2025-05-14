@@ -3,7 +3,7 @@
 Implementation of the paper [Visualizing the Loss Landscape of Neural Nets](https://github.com/tomgoldstein/loss-landscape).
 
 
-```bibtex
+```
 
 @inproceedings{visualloss,
   title={Visualizing the Loss Landscape of Neural Nets},
