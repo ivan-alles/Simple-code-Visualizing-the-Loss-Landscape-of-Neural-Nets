@@ -59,8 +59,8 @@ def train(model: nn.Module, loader: DataLoader):
         model.train()
         running_loss = 0.0
         for x, y in loader:
-            x, y = x.to(DEVICE, non_blocking=True), y.to(DEVICE, non_blocking=True)
-            optimiser.zero_grad(set_to_none=True)
+            x, y = x.to(DEVICE), y.to(DEVICE)
+            optimiser.zero_grad()
             loss = loss_fn(model(x), y)
             loss.backward()
             optimiser.step()
