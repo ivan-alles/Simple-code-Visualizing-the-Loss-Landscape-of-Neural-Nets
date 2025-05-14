@@ -23,6 +23,8 @@ torch.backends.cudnn.benchmark = True
 IMAGENET_MEAN = (0.485, 0.456, 0.406)
 IMAGENET_STD  = (0.229, 0.224, 0.225)
 
+loss_fn = nn.CrossEntropyLoss()
+
 def build_model() -> nn.Module:
     # 1) instantiate ImageNet-pretrained ResNet-18
     model = tv.models.resnet18(weights=tv.models.ResNet18_Weights.IMAGENET1K_V1)
@@ -52,7 +54,6 @@ def evaluate(model: nn.Module, loader: DataLoader) -> float:
 
 def train(model: nn.Module, loader: DataLoader):
     epochs = 3
-    criterion = nn.CrossEntropyLoss()
     optimiser = optim.AdamW(model.fc.parameters(), lr=1e-3)
     for epoch in range(1, epochs):
         model.train()
@@ -60,7 +61,7 @@ def train(model: nn.Module, loader: DataLoader):
         for x, y in loader:
             x, y = x.to(DEVICE, non_blocking=True), y.to(DEVICE, non_blocking=True)
             optimiser.zero_grad(set_to_none=True)
-            loss = criterion(model(x), y)
+            loss = loss_fn(model(x), y)
             loss.backward()
             optimiser.step()
             running_loss += loss.item() * y.size(0)
@@ -129,9 +130,10 @@ def main():
     print(f"Top-1 accuracy on CIFAR-10 test set: {test_acc:.2f}%")
     print("Computing loss landscape ...")
 
+    # Now we have a trained model and can compute and plot loss landscape
     x, y, loss = loss_landscape.compute_loss_landscape(
         model,
-        loss_fn=nn.CrossEntropyLoss(),
+        loss_fn=loss_fn,
         device=DEVICE,
         data_loader=test_loader,
     )

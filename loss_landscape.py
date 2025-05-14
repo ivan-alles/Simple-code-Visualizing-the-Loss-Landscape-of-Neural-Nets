@@ -9,55 +9,61 @@
 
 import torch
 
-def create_random_directions(model):
-    x_direction = create_random_direction(model)
-    y_direction = create_random_direction(model)
-    return [x_direction, y_direction]
 
-
-def create_random_direction(model):
-    weights = get_weights(model)
-    direction = get_random_weights(weights)
-    normalize_directions_for_weights(direction, weights)
-
+def create_random_direction(model, normalize=True):
+    """
+    Create random direction in the parameter space of the model.
+    Code from original paper:
+    https://github.com/tomgoldstein/loss-landscape/blob/64ef4d57f8dabe79b57a637819c44e48eda98f33/net_plotter.py#L196
+    """
+    parameters = [p.data for p in model.parameters()]
+    direction = [torch.randn_like(w, device=w.device) for w in parameters]
+    if normalize:
+        normalize_direction(direction, parameters)
     return direction
 
 
-def get_weights(model):
-    return [p.data for p in model.parameters()]
+def normalize_direction(direction, parameters, ignore="bias"):
+    """ Filter-wise normalization.
+    Code from original repo (section 4 in the paper):
+        https://github.com/tomgoldstein/loss-landscape/blob/64ef4d57f8dabe79b57a637819c44e48eda98f33/net_plotter.py#L132
 
+    :param direction: list of tensors comprising a direction
+    :param parameters: list of model parameters, must contain the same tensor shapes as direction
+    :param ignore: ignore bias (also batch norm) parameters.
+    """
+    assert (len(direction) == len(parameters))
+    for d, p in zip(direction, parameters):
+        if d.ndim <= 1:
+            # Assume a bias parameter
+            if ignore=="bias":
+                d.fill_(0)
+            else:
+                d.copy_(p)
+        else:
+            # Weight parameter have shape (out_channels, in_channels, ...).
+            # ... are kernels for conv layers.
+            # TODO: transposed convolutions have (in_channels, out_channels, ...) convention, do we need to take it into account?
+            for d_filter, p_filter in zip(d, p):
+                assert d_filter.shape == p_filter.shape
+                # Torch linalg.norm corresponds to a Frobenius norm for a flattened kernel of shape (num_elements, 1)
+                d_filter *= torch.linalg.norm(p_filter) / (torch.linalg.norm(d_filter) + 1e-10)
 
-def get_random_weights(weights):
-    return [torch.randn(w.size()) for w in weights]
+def update_model(model, params0, directions, coeff):
+    """
+    Update the model parameters in the direction of the given coefficients.
+    I.e. move the model to a new point in the parameter space.
+    """
+    alpha = coeff[0]
+    beta = coeff[1]
+    for p, p0, delta, eta in zip(model.parameters(), params0, directions[0], directions[1]):
+        p.data.copy_(p0 + alpha * delta + beta * eta)
 
-
-def normalize_direction(direction, weights):
-    for d, w in zip(direction, weights):
-        d.mul_(w.norm() / (d.norm() + 1e-10))
-
-
-def normalize_directions_for_weights(directions, weights):
-    assert (len(directions) == len(weights))
-    for i in range(len(directions)):
-        w = weights[i]
-        d = directions[i].to(w.device)  # Ensure the direction is on the same device as the weights
-        if d.dim() <= 1:
-            d.fill_(0)
-        normalize_direction(d, w)
-        directions[i] = d  # Update the direction in the list
-
-def overwrite_weights(model, init_weights, directions, step):
-    dx = directions[0]  # Direction vector present in the scale of weights
-    dy = directions[1]
-    changes = [d0 * step[0] + d1 * step[1] for (d0, d1) in zip(dx, dy)]  # αδ + βη
-
-    for (p, w, d) in zip(model.parameters(), init_weights, changes):
-        p.data = w + d  # θ^* + αδ + βη
 
 @torch.no_grad()
 def compute_loss(model, loss_fn, device, data_loader, num_batches):
-    """ Compute the loss at the given point in model parameter space. """
-    total_loss = 0
+    """ Compute the loss at the point in the parameter space given by model's weight. """
+    loss_sum = 0
     num_samples = 0
 
     for batch_idx, (inputs, targets) in enumerate(data_loader):
@@ -66,55 +72,63 @@ def compute_loss(model, loss_fn, device, data_loader, num_batches):
         inputs, targets = inputs.to(device), targets.to(device)
         outputs = model(inputs)
         loss = loss_fn(outputs, targets)
-        total_loss += loss.item() * batch_size
+        loss_sum += loss.item() * batch_size
         if batch_idx + 1 >= num_batches:
             break
 
-    return total_loss / num_samples
+    loss = loss_sum / num_samples
+    return loss
 
 
 @torch.no_grad()
-def compute_loss_landscape(model, loss_fn, data_loader, num_batches=1, min_val=-1, max_val=1, num_points=20, device=None):
+def compute_loss_landscape(model, loss_fn,  data_loader, num_batches=1, directions=None, min_val=-1, max_val=1, num_points=20, device=None):
     """
-    directions : filter-wise normalized directions(d = (d / d.norm) * w.norm, d is random vector from gausian distribution)
-    To make d have the same norm as w.
+    directions: a tuple of 2 directions in the model parameter space. See also create_random_directions().
+    :return: delta, eta - (num_points,) tensors with coordinates along directions, loss - (num_points, num_points) tensor with loss values.
     """
     device = device if device is not None else ("cuda" if torch.cuda.is_available() else "cpu")
 
     model.eval()
 
-    directions = create_random_directions(model)  # Create random directions
+    if directions is None:
+        directions = [create_random_direction(model) for _ in range(2)]
 
-    x = torch.linspace(min_val, max_val, num_points)
-    y = torch.linspace(min_val, max_val, num_points)
+    if len(directions) != 2:
+        raise ValueError("directions must be a tuple of 2 directions")
 
-    shape = (len(x), len(y))
+    delta = torch.linspace(min_val, max_val, num_points)
+    eta = torch.linspace(min_val, max_val, num_points)
+
+    shape = (len(delta), len(eta))
     loss = torch.zeros(shape)
 
-    init_weights = [p.data for p in model.parameters()]  # pretrained weights
+    params0 = [p.data for p in model.parameters()]  # Initial weights for (0, 0) point in delta, eta space
 
-    for xi in range(len(x)):
-        for yi in range(len(y)):
+    for i in range(len(delta)):
+        for j in range(len(eta)):
             # Move to the new point in the parameter space
-            overwrite_weights(model, init_weights, directions, (x[xi].item(), y[yi].item()))
+            update_model(model, params0, directions, (delta[i].item(), eta[j].item()))
 
             # Evaluate the model at a given point in the parameter space
             l = compute_loss(model, loss_fn, device, data_loader, num_batches)
-            loss[xi, yi] = l
+            loss[i, j] = l
 
-    return x, y, loss
+    return delta, eta, loss
 
 
-def plot3d(x, y, loss, file_name):
+def plot3d(delta, eta, loss, file_name):
+    """ Make a 3d plot of the loss landscape returned by compute_loss_landscape():
+    delta, eta, loss = compute_loss_landscape().
+    """
     import matplotlib.pyplot as plt
     fig = plt.figure()
     ax = fig.add_subplot(111, projection="3d")
-    x = x.detach().cpu().numpy()
-    y = y.detach().cpu().numpy()
+    delta = delta.detach().cpu().numpy()
+    eta = eta.detach().cpu().numpy()
     loss = loss.detach().cpu().numpy()
-    ax.plot_surface(x, y, loss, cmap="viridis")
-    ax.set_xlabel("x")
-    ax.set_ylabel("y")
+    ax.plot_surface(delta, eta, loss, cmap="viridis")
+    ax.set_xlabel("delta")
+    ax.set_ylabel("eta")
     ax.set_zlabel("loss")
     ax.set_title("Loss landscape")
     plt.savefig(file_name)
