@@ -116,21 +116,6 @@ def compute_loss_landscape(model, loss_fn,  data_loader, num_batches=1, directio
     return delta, eta, loss
 
 
-def plot3d(delta, eta, loss, file_name):
-    """ Make a 3d plot of the loss landscape returned by compute_loss_landscape():
-    delta, eta, loss = compute_loss_landscape().
-    """
-    import matplotlib.pyplot as plt
-    fig = plt.figure()
-    ax = fig.add_subplot(111, projection="3d")
-    delta = delta.detach().cpu().numpy()
-    eta = eta.detach().cpu().numpy()
-    loss = loss.detach().cpu().numpy()
-    ax.plot_surface(delta, eta, loss, cmap="viridis")
-    ax.set_xlabel("delta")
-    ax.set_ylabel("eta")
-    ax.set_zlabel("loss")
-    ax.set_title("Loss landscape")
-    plt.savefig(file_name)
+
 
 

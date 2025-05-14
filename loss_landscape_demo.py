@@ -38,8 +38,6 @@ def build_model() -> nn.Module:
         p.requires_grad = True
     return model.to(DEVICE)
 
-# -----------------------------------------------------------------------------#
-# ------------- training & evaluation -----------------------------------------#
 @torch.no_grad()
 def evaluate(model: nn.Module, loader: DataLoader) -> float:
     model.eval()
@@ -69,6 +67,40 @@ def train(model: nn.Module, loader: DataLoader):
 
         avg_loss = running_loss / len(loader.dataset)
         print(f"[{epoch:02}/{epochs}]  loss: {avg_loss:.4f}")
+
+def plot3d(delta, eta, loss, file_name):
+    """ Make a 3d plot of the loss landscape returned by compute_loss_landscape():
+    delta, eta, loss = compute_loss_landscape().
+    """
+    import matplotlib.pyplot as plt
+    fig = plt.figure()
+    ax = fig.add_subplot(111, projection="3d")
+    delta = delta.detach().cpu().numpy()
+    eta = eta.detach().cpu().numpy()
+    loss = loss.detach().cpu().numpy()
+    ax.plot_surface(delta, eta, loss, cmap="viridis")
+    ax.set_xlabel("delta")
+    ax.set_ylabel("eta")
+    ax.set_zlabel("loss")
+    ax.set_title("Loss landscape")
+    plt.savefig(file_name)
+
+def plot_contour(delta, eta, loss, file_name):
+    """ Make a contour plot of the loss landscape returned by compute_loss_landscape():
+    delta, eta, loss = compute_loss_landscape().
+    """
+    import matplotlib.pyplot as plt
+    fig = plt.figure()
+    ax = fig.add_subplot(111)
+    delta = delta.detach().cpu().numpy()
+    eta = eta.detach().cpu().numpy()
+    loss = loss.detach().cpu().numpy()
+    contour = ax.contour(delta, eta, loss, cmap="summer")
+    ax.clabel(contour, inline=True, fontsize=8)
+    ax.set_xlabel("delta")
+    ax.set_ylabel("eta")
+    ax.set_title("Loss landscape")
+    plt.savefig(file_name)
 
 def main():
     if CKPT_PATH.exists():
@@ -138,7 +170,9 @@ def main():
         device=DEVICE,
         data_loader=test_loader,
     )
-    loss_landscape.plot3d(x, y, loss, "loss_landscape3d.png")
+    loss = loss.clamp(0, 20.)
+    plot3d(x, y, loss, "loss_landscape3d.png")
+    plot_contour(x, y, loss, "loss_landscape_contour.png")
 
 if __name__ == "__main__":
     main()
