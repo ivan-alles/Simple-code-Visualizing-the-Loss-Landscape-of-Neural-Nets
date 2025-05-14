@@ -17,3 +17,8 @@ Implementation of the paper [Visualizing the Loss Landscape of Neural Nets](http
 Based on [Simple-code-Visualizing-the-Loss-Landscape-of-Neural-Nets](https://github.com/Leebh-kor/Simple-code-Visualizing-the-Loss-Landscape-of-Neural-Nets).
 
 
+## Installation
+
+```bash
+pip install torch torchvision matplotlib plotly
+```

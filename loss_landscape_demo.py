@@ -6,10 +6,15 @@
 """
 
 from pathlib import Path
-import time, os, torch, torchvision as tv
+import time
+import torch
 from torch import nn, optim
 from torch.utils.data import DataLoader
+import torchvision as tv
 from torchvision import transforms
+import matplotlib.pyplot as plt
+import plotly.graph_objects as go, numpy as np
+
 import loss_landscape
 
 # -----------------------------------------------------------------------------#
@@ -68,16 +73,26 @@ def train(model: nn.Module, loader: DataLoader):
         avg_loss = running_loss / len(loader.dataset)
         print(f"[{epoch:02}/{epochs}]  loss: {avg_loss:.4f}")
 
+
+def plot3d_html(delta, eta, loss, file_name):
+    fig = go.Figure(go.Surface(x=delta, y=eta, z=loss, colorscale="Viridis"))
+    fig.update_layout(
+        title_text="Loss landscape",
+        scene=dict(
+            xaxis_title="delta",
+            yaxis_title="eta",
+            zaxis_title="loss",
+        )
+    )
+    fig.write_html(file_name, full_html=True)
+
+
 def plot3d(delta, eta, loss, file_name):
     """ Make a 3d plot of the loss landscape returned by compute_loss_landscape():
     delta, eta, loss = compute_loss_landscape().
     """
-    import matplotlib.pyplot as plt
     fig = plt.figure()
     ax = fig.add_subplot(111, projection="3d")
-    delta = delta.detach().cpu().numpy()
-    eta = eta.detach().cpu().numpy()
-    loss = loss.detach().cpu().numpy()
     ax.plot_surface(delta, eta, loss, cmap="viridis")
     ax.set_xlabel("delta")
     ax.set_ylabel("eta")
@@ -89,12 +104,8 @@ def plot_contour(delta, eta, loss, file_name):
     """ Make a contour plot of the loss landscape returned by compute_loss_landscape():
     delta, eta, loss = compute_loss_landscape().
     """
-    import matplotlib.pyplot as plt
     fig = plt.figure()
     ax = fig.add_subplot(111)
-    delta = delta.detach().cpu().numpy()
-    eta = eta.detach().cpu().numpy()
-    loss = loss.detach().cpu().numpy()
     contour = ax.contour(delta, eta, loss, cmap="summer")
     ax.clabel(contour, inline=True, fontsize=8)
     ax.set_xlabel("delta")
@@ -164,15 +175,21 @@ def main():
     print("Computing loss landscape ...")
 
     # Now we have a trained model and can compute and plot loss landscape
-    x, y, loss = loss_landscape.compute_loss_landscape(
+    delta, eta, loss = loss_landscape.compute_loss_landscape(
         model,
         loss_fn=loss_fn,
         device=DEVICE,
         data_loader=test_loader,
     )
     loss = loss.clamp(0, 20.)
-    plot3d(x, y, loss, "loss_landscape3d.png")
-    plot_contour(x, y, loss, "loss_landscape_contour.png")
+
+    delta = delta.detach().cpu().numpy()
+    eta = eta.detach().cpu().numpy()
+    loss = loss.detach().cpu().numpy()
+
+    plot3d_html(delta, eta, loss, "loss_landscape3d.html")
+    plot3d(delta, eta, loss, "loss_landscape3d.png")
+    plot_contour(delta, eta, loss, "loss_landscape_contour.png")
 
 if __name__ == "__main__":
     main()
