@@ -61,7 +61,8 @@ def train(model: nn.Module, loader: DataLoader):
         for x, y in loader:
             x, y = x.to(DEVICE), y.to(DEVICE)
             optimiser.zero_grad()
-            loss = loss_fn(model(x), y)
+            y_p = model(x)
+            loss = loss_fn(y_p, y)
             loss.backward()
             optimiser.step()
             running_loss += loss.item() * y.size(0)
